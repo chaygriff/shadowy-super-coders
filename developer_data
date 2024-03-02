@@ -1,0 +1,47 @@
+sol <- gh("GET /repos/:owner/:repo/contributors", owner = "solana-labs", repo = "solana", per_page = 100)
+sol_contributors_list <- jsonlite::fromJSON(toJSON(sol))
+sol_contributors_df <- sol_contributors_list %>%
+  select(avatar_url, login, contributions, html_url) %>%
+  rename(Username = login, Contributions = contributions, Profile_URL = html_url) %>%
+  mutate(chain = "Solana")
+
+sol_activity <- gh("GET /repos/{owner}/{repo}/activity", owner = "solana-labs", repo = "solana", per_page = 100, .limit = 1000) 
+sol_activity <- fromJSON(toJSON(sol_activity)) %>%
+  select(timestamp, activity_type) %>%
+  mutate(timestamp = str_remove(timestamp, "T.*$")) %>%
+  group_by(timestamp) %>%
+  summarize(commits = n())
+
+sol_activity$chain <- "SOL"
+
+eth <- gh("GET /repos/:owner/:repo/contributors", owner = "ethereum", repo = "go-ethereum", per_page = 100)
+eth_contributors_list <- jsonlite::fromJSON(toJSON(eth))
+eth_contributors_df <- eth_contributors_list %>%
+  select(avatar_url, login, contributions, html_url) %>%
+  rename(Username = login, Contributions = contributions, Profile_URL = html_url) %>%
+  mutate(chain = "Ethereum")
+
+eth_activity <- gh("GET /repos/{owner}/{repo}/activity", owner = "ethereum", repo = "go-ethereum", per_page = 100, .limit = 1000) 
+eth_activity <- fromJSON(toJSON(eth_activity)) %>%
+  select(timestamp, activity_type) %>%
+  mutate(timestamp = str_remove(timestamp, "T.*$")) %>%
+  group_by(timestamp) %>%
+  summarize(commits = n()) 
+
+eth_activity$chain = "ETH"
+
+eth_sol_contributors <- rbind(eth_contributors_df, sol_contributors_df)
+
+eth_sol <- sol_activity %>% left_join(eth_activity, by = "timestamp") %>%
+  mutate(chain.y = ifelse(is.na(chain.y), "ETH", chain.y),
+         commits.y = ifelse(is.na(commits.y), 0, commits.y))
+
+df_long <- eth_sol %>%
+  # Convert to long format
+  pivot_longer(
+    cols = c(commits.x, chain.x, commits.y, chain.y),
+    names_to = c(".value", "set"),
+    names_sep = "\\."
+  ) %>%
+  # Optionally, drop the 'set' column if it's no longer needed
+  select(-set)
